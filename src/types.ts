@@ -1,3 +1,9 @@
+export interface FaceLandmark {
+  x: number;
+  y: number;
+  z: number;
+}
+
 export interface Glasses {
   id: string;
   name: string;
@@ -17,6 +23,7 @@ export interface FaceAnalysisResult {
   confidence: number;
   description: string;
   recommendations: Glasses[];
+  landmarks: FaceLandmark[];
 }
 
 export interface TourBooking {

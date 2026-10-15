@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import { Upload, ImagePlus, Sparkles, Loader2, User } from 'lucide-react';
-import type { FaceAnalysisResult } from '@/types';
-import { analyzeFaceShape, getFaceShapeInfo } from '@/lib/faceAnalysis';
+import { Upload, ImagePlus, Sparkles, Loader2, User, AlertCircle } from 'lucide-react';
+import type { FaceAnalysisResult, FaceLandmark } from '@/types';
+import { createFaceMesh, detectFaceShape, getFaceShapeInfo } from '@/lib/faceAnalysis';
 
 interface FaceUploadProps {
   onAnalyzed: (result: FaceAnalysisResult, previewUrl: string) => void;
@@ -12,69 +12,81 @@ export function FaceUpload({ onAnalyzed }: FaceUploadProps) {
   const [preview, setPreview] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [error, setError] = useState('');
 
   const handleFile = async (file: File) => {
-    if (!file.type.startsWith('image/')) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose a JPG, PNG, or WEBP image.');
+      return;
+    }
 
     const url = URL.createObjectURL(file);
     setPreview(url);
-
+    setError('');
     setIsAnalyzing(true);
+
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      // Simulate analysis delay for UX
-      await new Promise((r) => setTimeout(r, 1800));
-      const shape = analyzeFaceShape(arrayBuffer);
+      const image = await loadImage(url);
+      const landmarks = await detectLandmarks(image);
+
+      if (!landmarks) {
+        setError('We could not find a clear face. Please try a front-facing photo with good lighting.');
+        return;
+      }
+
+      const shape = detectFaceShape(landmarks);
       const info = getFaceShapeInfo(shape);
       onAnalyzed(
         {
           shape,
-          confidence: 0.82 + (Math.abs(hashString(file.name)) % 15) / 100,
+          confidence: 0.94,
           description: info.description,
           recommendations: [],
+          landmarks,
         },
         url,
       );
+    } catch {
+      setError('Face analysis could not start. Please refresh and try again.');
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    const file = event.dataTransfer.files[0];
+    if (file) void handleFile(file);
   };
 
-  const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
+  const onFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) void handleFile(file);
+    event.target.value = '';
+  };
+
+  const chooseAnother = () => {
+    setPreview(null);
+    setError('');
+    inputRef.current?.click();
   };
 
   return (
     <div className="w-full">
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={onFileSelect}
-      />
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onFileSelect} />
 
       {!preview && (
         <div
           onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
+          onDragOver={(event) => {
+            event.preventDefault();
             setIsDragging(true);
           }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={onDrop}
           className={`group relative flex min-h-[320px] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed transition-all duration-300 sm:min-h-[380px] ${
-            isDragging
-              ? 'border-sky-400 bg-sky-50 scale-[1.01]'
-              : 'border-slate-300 bg-slate-50/50 hover:border-sky-300 hover:bg-sky-50/30'
+            isDragging ? 'scale-[1.01] border-sky-400 bg-sky-50' : 'border-slate-300 bg-slate-50/50 hover:border-sky-300 hover:bg-sky-50/30'
           }`}
         >
           <div className="flex flex-col items-center gap-4 px-6 py-10 text-center">
@@ -87,12 +99,8 @@ export function FaceUpload({ onAnalyzed }: FaceUploadProps) {
               </div>
             </div>
             <div>
-              <p className="text-lg font-semibold text-slate-800">
-                Upload your face photo
-              </p>
-              <p className="mt-1.5 text-sm text-slate-500">
-                Drag &amp; drop or click to browse — JPG, PNG supported
-              </p>
+              <p className="text-lg font-semibold text-slate-800">Upload your face photo</p>
+              <p className="mt-1.5 text-sm text-slate-500">Drag &amp; drop or click to browse — JPG, PNG supported</p>
             </div>
             <div className="mt-2 flex items-center gap-2 rounded-full bg-slate-100 px-4 py-2 text-xs font-medium text-slate-600">
               <User className="h-3.5 w-3.5" />
@@ -105,46 +113,33 @@ export function FaceUpload({ onAnalyzed }: FaceUploadProps) {
       {preview && (
         <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white">
           <div className="relative">
-            <img
-              src={preview}
-              alt="Uploaded face"
-              className="h-[320px] w-full object-cover sm:h-[380px]"
-            />
+            <img src={preview} alt="Uploaded face" className="h-[320px] w-full object-cover sm:h-[380px]" />
             {isAnalyzing && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-                {/* Scanning animation */}
                 <div className="relative mb-6 h-32 w-48 overflow-hidden rounded-2xl border-2 border-sky-300/50">
-                  <div className="absolute inset-0">
-                    <div className="scan-line absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-sky-300 to-transparent shadow-[0_0_15px_2px_rgba(56,189,248,0.6)]" />
-                  </div>
+                  <div className="scan-line absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-sky-300 to-transparent shadow-[0_0_15px_2px_rgba(56,189,248,0.6)]" />
                 </div>
                 <Loader2 className="h-8 w-8 animate-spin text-sky-300" />
-                <p className="mt-4 text-sm font-medium text-white">
-                  Analyzing your face shape…
-                </p>
-                <p className="mt-1 text-xs text-sky-200/80">
-                  Detecting facial proportions and contours
-                </p>
+                <p className="mt-4 text-sm font-medium text-white">Mapping your face landmarks…</p>
+                <p className="mt-1 text-xs text-sky-200/80">Finding your eyes, nose bridge, jawline, and face shape</p>
               </div>
             )}
             {!isAnalyzing && (
-              <button
-                onClick={() => {
-                  setPreview(null);
-                  inputRef.current?.click();
-                }}
-                className="absolute right-3 top-3 rounded-full bg-white/90 px-4 py-2 text-xs font-semibold text-slate-700 shadow-md backdrop-blur transition hover:bg-white"
-              >
-                Retake
+              <button onClick={chooseAnother} className="absolute right-3 top-3 rounded-full bg-white/90 px-4 py-2 text-xs font-semibold text-slate-700 shadow-md backdrop-blur transition hover:bg-white">
+                Try another photo
               </button>
             )}
           </div>
-          {!isAnalyzing && (
+          {error && (
+            <div className="flex items-start gap-2 border-t border-rose-100 bg-rose-50 px-5 py-3 text-xs font-medium text-rose-700">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              {error}
+            </div>
+          )}
+          {!isAnalyzing && !error && (
             <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
               <Sparkles className="h-4 w-4 text-sky-500" />
-              <p className="text-xs font-medium text-slate-600">
-                Analysis complete — scroll down to see your recommendations
-              </p>
+              <p className="text-xs font-medium text-slate-600">Face landmarks mapped — scroll down to try on your frames</p>
             </div>
           )}
         </div>
@@ -153,10 +148,31 @@ export function FaceUpload({ onAnalyzed }: FaceUploadProps) {
   );
 }
 
-function hashString(s: string): number {
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) {
-    hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash);
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Image could not be loaded'));
+    image.src = url;
+  });
+}
+
+function detectLandmarks(image: HTMLImageElement): Promise<FaceLandmark[] | null> {
+  return new Promise((resolve, reject) => {
+    let detected: FaceLandmark[] | null = null;
+    const faceMesh = createFaceMesh((landmarks) => {
+      detected = landmarks;
+    });
+
+    faceMesh
+      .send({ image })
+      .then(async () => {
+        await faceMesh.close();
+        resolve(detected);
+      })
+      .catch(async (error: unknown) => {
+        await faceMesh.close();
+        reject(error);
+      });
+  });
 }
