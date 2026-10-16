@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Glasses, RotateCw, Sparkles, ZoomIn, ZoomOut } from 'lucide-react';
 import type { FaceLandmark, Glasses as GlassesType } from '@/types';
 import { getFaceReferencePoints } from '@/lib/faceAnalysis';
@@ -17,7 +17,24 @@ export function VirtualTryOn({ photoUrl, landmarks, glasses, selectedIndex, onSe
   const [photo, setPhoto] = useState<HTMLImageElement | null>(null);
   const [frame, setFrame] = useState<HTMLImageElement | null>(null);
   const [zoom, setZoom] = useState(1);
-  const selectedGlasses = glasses[selectedIndex];
+  const frameItems = useMemo(
+    () =>
+      Array.from({ length: 3 }, (_, index) =>
+        glasses[index] ?? {
+          id: `uploaded-frame-${index + 1}`,
+          name: `Uploaded frame ${index + 1}`,
+          brand: 'K-FITTING',
+          price: 0,
+          frame_type: 'uploaded',
+          face_shapes: [],
+          image_url: getUploadedGlasses(index),
+          wearing_image_url: getUploadedGlasses(index),
+          description: 'Try this uploaded frame on your photo.',
+        },
+      ),
+    [glasses],
+  );
+  const selectedGlasses = frameItems[selectedIndex] ?? frameItems[0];
 
   useEffect(() => {
     const image = new Image();
@@ -86,7 +103,7 @@ export function VirtualTryOn({ photoUrl, landmarks, glasses, selectedIndex, onSe
           <Glasses className="h-5 w-5 text-sky-500" />
         </div>
         <div className="grid grid-cols-3 gap-2">
-          {glasses.map((item, index) => (
+          {frameItems.map((item, index) => (
             <button
               key={item.id}
               type="button"
@@ -106,6 +123,15 @@ export function VirtualTryOn({ photoUrl, landmarks, glasses, selectedIndex, onSe
       </div>
     </div>
   );
+}
+
+function rotatePoint(x: number, y: number, origin: { x: number; y: number }, angle: number) {
+  const relativeX = x - origin.x;
+  const relativeY = y - origin.y;
+  return {
+    x: origin.x + relativeX * Math.cos(angle) - relativeY * Math.sin(angle),
+    y: origin.y + relativeX * Math.sin(angle) + relativeY * Math.cos(angle),
+  };
 }
 
 function drawTryOn(
@@ -140,15 +166,34 @@ function drawTryOn(
   const leftEye = point(references.leftEye);
   const rightEye = point(references.rightEye);
   const bridge = point(references.bridge);
+  const leftTemple = point(landmarks[127]);
+  const rightTemple = point(landmarks[356]);
   const eyeDistance = Math.hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y);
   const angle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x);
-  const targetWidth = eyeDistance * 2.45 * zoom;
+  const targetWidth = eyeDistance * 2.45 * 1.15 * zoom;
   const targetHeight = targetWidth * (frame.naturalHeight / frame.naturalWidth);
+  const anchor = { x: bridge.x, y: bridge.y + eyeDistance * 0.12 };
+  const leftHinge = rotatePoint(anchor.x - targetWidth * 0.44, anchor.y - targetHeight * 0.04, anchor, angle);
+  const rightHinge = rotatePoint(anchor.x + targetWidth * 0.44, anchor.y - targetHeight * 0.04, anchor, angle);
 
   context.save();
-  context.translate(bridge.x, bridge.y);
+  context.strokeStyle = 'rgba(10, 10, 10, 0.9)';
+  context.lineWidth = Math.max(2, targetWidth * 0.014);
+  context.lineCap = 'round';
+  context.shadowColor = 'rgba(15, 23, 42, 0.28)';
+  context.shadowBlur = Math.max(2, targetWidth * 0.012);
+  context.beginPath();
+  context.moveTo(leftHinge.x, leftHinge.y);
+  context.lineTo(leftTemple.x, leftTemple.y);
+  context.moveTo(rightHinge.x, rightHinge.y);
+  context.lineTo(rightTemple.x, rightTemple.y);
+  context.stroke();
+  context.restore();
+
+  context.save();
+  context.translate(anchor.x, anchor.y);
   context.rotate(angle);
-  context.shadowColor = 'rgba(15, 23, 42, 0.38)';
+  context.shadowColor = 'rgba(15, 23, 42, 0.4)';
   context.shadowBlur = Math.max(3, targetWidth * 0.018);
   context.shadowOffsetY = Math.max(1, targetWidth * 0.012);
   context.drawImage(frame, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
