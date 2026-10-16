@@ -125,15 +125,6 @@ export function VirtualTryOn({ photoUrl, landmarks, glasses, selectedIndex, onSe
   );
 }
 
-function rotatePoint(x: number, y: number, origin: { x: number; y: number }, angle: number) {
-  const relativeX = x - origin.x;
-  const relativeY = y - origin.y;
-  return {
-    x: origin.x + relativeX * Math.cos(angle) - relativeY * Math.sin(angle),
-    y: origin.y + relativeX * Math.sin(angle) + relativeY * Math.cos(angle),
-  };
-}
-
 function drawTryOn(
   canvas: HTMLCanvasElement,
   photo: HTMLImageElement,
@@ -166,29 +157,11 @@ function drawTryOn(
   const leftEye = point(references.leftEye);
   const rightEye = point(references.rightEye);
   const bridge = point(references.bridge);
-  const leftTemple = point(landmarks[127]);
-  const rightTemple = point(landmarks[356]);
   const eyeDistance = Math.hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y);
   const angle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x);
   const targetWidth = eyeDistance * 2.45 * 1.15 * zoom;
   const targetHeight = targetWidth * (frame.naturalHeight / frame.naturalWidth);
   const anchor = { x: bridge.x, y: bridge.y + eyeDistance * 0.12 };
-  const leftHinge = rotatePoint(anchor.x - targetWidth * 0.44, anchor.y - targetHeight * 0.04, anchor, angle);
-  const rightHinge = rotatePoint(anchor.x + targetWidth * 0.44, anchor.y - targetHeight * 0.04, anchor, angle);
-
-  context.save();
-  context.strokeStyle = 'rgba(10, 10, 10, 0.9)';
-  context.lineWidth = Math.max(2, targetWidth * 0.014);
-  context.lineCap = 'round';
-  context.shadowColor = 'rgba(15, 23, 42, 0.28)';
-  context.shadowBlur = Math.max(2, targetWidth * 0.012);
-  context.beginPath();
-  context.moveTo(leftHinge.x, leftHinge.y);
-  context.lineTo(leftTemple.x, leftTemple.y);
-  context.moveTo(rightHinge.x, rightHinge.y);
-  context.lineTo(rightTemple.x, rightTemple.y);
-  context.stroke();
-  context.restore();
 
   context.save();
   context.translate(anchor.x, anchor.y);
